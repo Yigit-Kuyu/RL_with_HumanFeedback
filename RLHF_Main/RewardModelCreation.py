@@ -126,7 +126,7 @@ env = gym.make("CartPole-v1", render_mode="human")
 state,info = env.reset()
 n_observations =env.observation_space.shape[0]
 # n_actions = env.action_space.n # # This should be 2, but it's not used in the rewardz model
-n_human_actions=1 # since human gives one rank for the corresponding state, it should be 0.
+n_human_actions=1 # since human gives one rank for the corresponding state, it should be 1.
 print("state dimension: ", n_observations) # 4
 
 # Initialize model and optimizer
@@ -149,7 +149,7 @@ for t in range(30):
     h_inp = get_human_feedback()
     training_samples.append([[observation, action], h_inp])
     if terminated:
-        print(f'failed time')
+        print('failed time')
         observation = env.reset()
 
 

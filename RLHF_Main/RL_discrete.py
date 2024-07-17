@@ -103,16 +103,17 @@ class RewardModel(nn.Module):
         return output
 
 # Function to plot durations and cumulative rewards
-def plot_metrics():
+def plot_metrics(title, durations, rewards):
+    #plt.figure(figsize=(12, 8))
     plt.figure(1)
     plt.clf()
 
     # Subplot for episode durations
     plt.subplot(2, 1, 1)
-    durations_t = torch.tensor(episode_durations, dtype=torch.float)
-    plt.title('Training Process')
+    durations_t = torch.tensor(durations, dtype=torch.float)
+    plt.title(title)
     plt.xlabel('Episode')
-    plt.ylabel('Duration(number of time steps taken)')
+    plt.ylabel('Duration (number of time steps taken)')
     plt.plot(durations_t.numpy())
     if len(durations_t) >= 100:
         means = durations_t.unfold(0, 100, 1).mean(1).view(-1)
@@ -121,7 +122,7 @@ def plot_metrics():
 
     # Subplot for cumulative rewards
     plt.subplot(2, 1, 2)
-    rewards_t = torch.tensor(episode_rewards, dtype=torch.float)
+    rewards_t = torch.tensor(rewards, dtype=torch.float)
     plt.xlabel('Episode')
     plt.ylabel('Cumulative Reward')
     plt.plot(rewards_t.numpy())
@@ -136,7 +137,7 @@ def plot_metrics():
 
 
 
-def optimize_model():
+def train_dqn_step():
     if len(memory) < batch_size:
         return
     transitions = memory.sample(batch_size)
@@ -204,14 +205,20 @@ memory = ReplayMemory(rp_m)
 steps_done = 0 
 episode_durations = []
 episode_rewards = []  
-num_episodes = 100
+num_train_episodes = 10
+num_test_episodes=20
 
-for i_episode in range(num_episodes):
+######################################## Training #######################################
+
+for i_episode in range(num_train_episodes):
     
     state, _ = env.reset()
     state = torch.tensor(state, dtype=torch.float32, device=device).unsqueeze(0)
     cumulative_reward = 0  # Initialize cumulative reward for the episode
-    for t in count():
+    t = 0  # Initialize time step counter
+    
+    while True:
+        t += 1  # Increment time step
         action = policy_net.select_action(state)
         observation, _, terminated, truncated, _ = env.step(action.item())
         with torch.no_grad():
@@ -223,24 +230,26 @@ for i_episode in range(num_episodes):
         memory.push(state, action, next_state, reward) # Store the transition in memory
         state = next_state
         cumulative_reward += reward.item()  # Accumulate reward
-        optimize_model() # Optimization on the policy network
+        train_dqn_step() # Optimization on the policy network
         target_net_state_dict = target_net.state_dict() # Soft update of the target network's weights
         policy_net_state_dict = policy_net.state_dict()
         for key in policy_net_state_dict:
             target_net_state_dict[key] = policy_net_state_dict[key]*tau + target_net_state_dict[key]*(1-tau)
         target_net.load_state_dict(target_net_state_dict)
         if done:
-            episode_durations.append(t + 1)
+            episode_durations.append(t)
             episode_rewards.append(cumulative_reward)  # Append cumulative reward
-            plot_metrics()
+            plot_metrics('Training Process',episode_durations, episode_rewards)
             break
 
         
 
-print('Complete')
-plot_metrics()
+print('Training Complete')
+plt.close()  # Close the training figure
 plt.ioff()
 plt.show()
+
+
 
 torch.save({
     'policy_net_state_dict': policy_net.state_dict(),
@@ -248,4 +257,45 @@ torch.save({
     'optimizer_state_dict': optimizer.state_dict(),
     'episode_durations': episode_durations,
     'episode_rewards': episode_rewards
-}, 'RL-model-tuned.pth.tar')
+}, 'RL_Model.pkl.tar')
+
+
+######################################## Testing #######################################
+
+# Reset lists for testing data
+test_episode_durations = []
+test_episode_rewards = []
+
+policy_net = DQN(n_observations, n_actions).cuda()
+print('Test data looding....')
+checkpoint = torch.load('RL_Model.pkl.tar')
+policy_net.load_state_dict(checkpoint['policy_net_state_dict'])
+print('Test data looded')
+state, info = env.reset()
+state = torch.tensor(state, dtype=torch.float32, device=device).unsqueeze(0)
+
+for episode in range(num_test_episodes):
+    state, info = env.reset()
+    state = torch.tensor(state, dtype=torch.float32, device=device).unsqueeze(0)
+    cumulative_reward = 0
+    t = 0
+
+    while True:
+        env.render()
+        with torch.no_grad():
+            action = policy_net(state.cuda()).max(1)[1].view(1, 1)
+        print('action taken: ', action.item())
+        observation, reward, terminated, truncated, info = env.step(action.item())
+        cumulative_reward += reward
+        t += 1
+        if done:
+            print('Episode ended')
+            test_episode_durations.append(t)
+            test_episode_rewards.append(cumulative_reward)
+            plot_metrics('Testing Process',test_episode_durations, test_episode_rewards)
+            break
+        else:
+            state = torch.tensor(observation, dtype=torch.float32, device=device).unsqueeze(0)
+
+env.close()
+print('Testing Complete')
